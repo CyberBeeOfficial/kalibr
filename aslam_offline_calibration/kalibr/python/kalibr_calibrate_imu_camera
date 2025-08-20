@@ -9,7 +9,8 @@ import argparse
 import signal
 import sys
 import os
-
+import multiprocessing
+import aslam_backend as aopt
 # make numpy print prettier
 np.set_printoptions(suppress=True)
 
@@ -182,22 +183,27 @@ def main():
         iCal.registerImu(imu)
         if imu is not imus[0]:
             imu.findOrientationPrior(imus[0])
-
     print("")
-    print("Building the problem")
-    iCal.buildProblem(splineOrder=6, 
-                      poseKnotsPerSecond=100, 
-                      biasKnotsPerSecond=50, 
-                      doPoseMotionError=False,
-                      doBiasMotionError=True,
-                      blakeZisserCam=-1,
-                      huberAccel=-1,
-                      huberGyro=-1,
-                      noTimeCalibration=parsed.no_time,
-                      noChainExtrinsics=(not parsed.recompute_chain_extrinsics),
-                      maxIterations=parsed.max_iter,
-                      timeOffsetPadding=parsed.timeoffset_padding,
-                      verbose = parsed.verbose)
+    print("Building the problem (high-precision mode)")
+    iCal.buildProblem(
+        splineOrder           = 8,        # even higher-order spline
+        poseKnotsPerSecond    = 120,      # denser pose control points
+        biasKnotsPerSecond    = 100,      # denser bias spline
+        doPoseMotionError     = True,     # enforce second-derivative regularization
+        mrTranslationVariance = 1e4,      # tighten translation smoothness prior
+        mrRotationVariance    = 1e4,      # tighten rotation smoothness prior
+        doBiasMotionError     = True,     # bias random-walk regularizer
+        blakeZisserCam        = 4.0,      # robust camera reprojection (σ≈4px)
+        huberAccel            = 0.1,      # robust accel residuals (σ≈0.1 m/s²)
+        huberGyro             = 0.1,      # robust gyro residuals (σ≈0.1 rad/s)
+        noTimeCalibration     = parsed.no_time,
+        noChainExtrinsics     = (not parsed.recompute_chain_extrinsics),
+        maxIterations         = parsed.max_iter,
+        timeOffsetPadding     = parsed.timeoffset_padding,
+        verbose               = parsed.verbose
+    )
+
+
 
     print("")
     print("Before Optimization")
@@ -205,8 +211,22 @@ def main():
     util.printErrorStatistics(iCal)
     
     print("")
-    print("Optimizing...")
-    iCal.optimize(maxIterations=parsed.max_iter, recoverCov=parsed.recover_cov)
+    print("Optimizing with tightened LM tolerances…")
+    # build custom optimizer options
+    opts = aopt.Optimizer2Options()
+    opts.verbose                    = True
+    opts.doLevenbergMarquardt      = True
+    opts.levenbergMarquardtLambdaInit = 5.0
+    opts.nThreads                   = max(1, multiprocessing.cpu_count() - 2)
+    opts.convergenceDeltaX          = 1e-6   # smaller parameter steps
+    opts.convergenceDeltaJ          = 1e-4   # tighter cost reduction
+    opts.maxIterations              = max(parsed.max_iter, 200)
+    opts.trustRegionPolicy          = aopt.LevenbergMarquardtTrustRegionPolicy(opts.levenbergMarquardtLambdaInit)
+    opts.linearSolver               = aopt.BlockCholeskyLinearSystemSolver()
+
+    iCal.optimize(options=opts,
+                  maxIterations=opts.maxIterations,
+                  recoverCov=parsed.recover_cov)
 
     print("")
     print("After Optimization (Results)")
