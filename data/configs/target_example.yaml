@@ -1,0 +1,56 @@
+# Calibration Target Configuration Example
+# =========================================
+# Supported target types:
+# - aprilgrid: AprilTag grid (recommended for IMU-camera calibration)
+# - checkerboard: Standard checkerboard pattern
+# - circlegrid: Circle grid pattern
+
+# ==================================
+# AprilGrid Configuration (Recommended)
+# ==================================
+target_type: 'aprilgrid'
+
+# Number of tags in each direction
+tagCols: 6
+tagRows: 6
+
+# Size of one AprilTag [meters]
+# Measure the black square size, not including white border
+tagSize: 0.088
+
+# Ratio of tag spacing to tag size
+# spacing = tagSpacing * tagSize
+# Example: tagSpacing=0.3 with tagSize=0.088m gives 26.4mm spacing
+tagSpacing: 0.3
+
+# Tag family (optional, default is 'tag36h11')
+# tagFamily: 'tag36h11'
+
+# ==================================
+# Alternative: Checkerboard Configuration
+# ==================================
+# target_type: 'checkerboard'
+#
+# # Number of internal corners (not squares!)
+# # For a 7x5 square board, use targetCols=6, targetRows=4
+# targetCols: 6
+# targetRows: 4
+#
+# # Size of one square [meters]
+# rowSpacingMeters: 0.06
+# colSpacingMeters: 0.06
+
+# ==================================
+# Alternative: Circle Grid Configuration
+# ==================================
+# target_type: 'circlegrid'
+#
+# # Number of circles
+# targetCols: 6
+# targetRows: 6
+#
+# # Spacing between circle centers [meters]
+# spacingMeters: 0.02
+#
+# # Use asymmetric grid
+# asymmetricGrid: false

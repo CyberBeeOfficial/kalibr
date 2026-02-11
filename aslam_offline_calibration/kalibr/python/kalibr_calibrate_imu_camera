@@ -92,10 +92,23 @@ def parseArgs():
     
     #optimization options
     groupOpt = parser.add_argument_group('Optimization options')
-    groupOpt.add_argument('--no-time-calibration', action='store_true', dest='no_time', help='Disable the temporal calibration', required=False)      
+    groupOpt.add_argument('--no-time-calibration', action='store_true', dest='no_time', help='Disable the temporal calibration', required=False)
     groupOpt.add_argument('--max-iter', type=int, default=30, dest='max_iter', help='Max. iterations (default: %(default)s)', required=False)
     groupOpt.add_argument('--recover-covariance', action='store_true', dest='recover_cov', help='Recover the covariance of the design variables.', required=False)
     groupOpt.add_argument('--timeoffset-padding', type=float, default=30.e-3, dest='timeoffset_padding', help='Maximum range in which the timeoffset may change during estimation [s] (default: %(default)s)', required=False)
+
+    #fine-tuning options (for refining existing calibration)
+    groupFineTune = parser.add_argument_group('Fine-tuning options (for refining existing calibration)')
+    groupFineTune.add_argument('--fine-tune', action='store_true', dest='fine_tune',
+                               help='Enable fine-tune mode: uses prior calibration from --cams as starting point with tighter bounds. ' \
+                                    'Useful for shipping pre-calibrated systems to clients who need minor adjustments.')
+    groupFineTune.add_argument('--lock-imu-cam-extrinsics', action='store_true', dest='lock_imu_cam_extrinsics',
+                               help='Lock the IMU-camera extrinsic transformation (only refine time offset). ' \
+                                    'Use when the physical mounting is fixed and only temporal drift needs correction.')
+    groupFineTune.add_argument('--fine-tune-timeoffset-padding', type=float, default=5.e-3, dest='fine_tune_timeoffset_padding',
+                               help='Tighter time offset search range for fine-tune mode [s] (default: %(default)s = 5ms)')
+    groupFineTune.add_argument('--fine-tune-max-iter', type=int, default=50, dest='fine_tune_max_iter',
+                               help='Max iterations for fine-tune mode (default: %(default)s)')
 
     #Result options  
     outputSettings = parser.add_argument_group('Output options')
@@ -183,24 +196,44 @@ def main():
         iCal.registerImu(imu)
         if imu is not imus[0]:
             imu.findOrientationPrior(imus[0])
+    # Determine mode and parameters
+    if parsed.fine_tune:
+        print("")
+        print("=== FINE-TUNE MODE ===")
+        print("Using prior calibration from --cams as starting point")
+        print("  Time offset padding: {:.1f}ms (tighter bounds)".format(parsed.fine_tune_timeoffset_padding * 1000))
+        if parsed.lock_imu_cam_extrinsics:
+            print("  IMU-camera extrinsics: LOCKED (only refining time offset)")
+        else:
+            print("  IMU-camera extrinsics: will be refined")
+        effective_timeoffset_padding = parsed.fine_tune_timeoffset_padding
+        effective_max_iter = parsed.fine_tune_max_iter
+        # In fine-tune mode, we don't recompute chain extrinsics unless explicitly asked
+        effective_no_chain_extrinsics = True
+    else:
+        effective_timeoffset_padding = parsed.timeoffset_padding
+        effective_max_iter = parsed.max_iter
+        effective_no_chain_extrinsics = (not parsed.recompute_chain_extrinsics)
+
     print("")
-    print("Building the problem (high-precision mode)")
+    print("Building the problem (optimized for low-rate camera + VINS-Mono)")
     iCal.buildProblem(
-        splineOrder           = 8,        # even higher-order spline
-        poseKnotsPerSecond    = 120,      # denser pose control points
-        biasKnotsPerSecond    = 100,      # denser bias spline
+        splineOrder           = 6,        # stable for sparse camera observations (10-15Hz)
+        poseKnotsPerSecond    = 50,       # ~3-5x camera rate (optimal for 10-15Hz camera)
+        biasKnotsPerSecond    = 50,       # half IMU rate (good for 100Hz IMU)
         doPoseMotionError     = True,     # enforce second-derivative regularization
-        mrTranslationVariance = 1e4,      # tighten translation smoothness prior
-        mrRotationVariance    = 1e4,      # tighten rotation smoothness prior
+        mrTranslationVariance = 1e5,      # slightly looser for low-rate camera
+        mrRotationVariance    = 1e5,      # slightly looser for low-rate camera
         doBiasMotionError     = True,     # bias random-walk regularizer
-        blakeZisserCam        = 4.0,      # robust camera reprojection (σ≈4px)
-        huberAccel            = 0.1,      # robust accel residuals (σ≈0.1 m/s²)
-        huberGyro             = 0.1,      # robust gyro residuals (σ≈0.1 rad/s)
+        blakeZisserCam        = 2.0,      # tighter: 2px threshold for VGA resolution
+        huberAccel            = 0.5,      # looser: consumer MEMS IMUs have more noise
+        huberGyro             = 0.05,     # tight for gyro (usually more accurate)
         noTimeCalibration     = parsed.no_time,
-        noChainExtrinsics     = (not parsed.recompute_chain_extrinsics),
-        maxIterations         = parsed.max_iter,
-        timeOffsetPadding     = parsed.timeoffset_padding,
-        verbose               = parsed.verbose
+        noChainExtrinsics     = effective_no_chain_extrinsics,
+        maxIterations         = effective_max_iter,
+        timeOffsetPadding     = effective_timeoffset_padding,
+        verbose               = parsed.verbose,
+        lockImuCamExtrinsics  = getattr(parsed, 'lock_imu_cam_extrinsics', False)
     )
 
 
@@ -218,9 +251,9 @@ def main():
     opts.doLevenbergMarquardt      = True
     opts.levenbergMarquardtLambdaInit = 5.0
     opts.nThreads                   = max(1, multiprocessing.cpu_count() - 2)
-    opts.convergenceDeltaX          = 1e-6   # smaller parameter steps
-    opts.convergenceDeltaJ          = 1e-4   # tighter cost reduction
-    opts.maxIterations              = max(parsed.max_iter, 200)
+    opts.convergenceDeltaX          = 1e-7   # even tighter parameter convergence
+    opts.convergenceDeltaJ          = 1e-5   # even tighter cost convergence
+    opts.maxIterations              = max(parsed.max_iter, 300)  # more iterations for better convergence
     opts.trustRegionPolicy          = aopt.LevenbergMarquardtTrustRegionPolicy(opts.levenbergMarquardtLambdaInit)
     opts.linearSolver               = aopt.BlockCholeskyLinearSystemSolver()
 

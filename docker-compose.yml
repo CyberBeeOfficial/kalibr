@@ -1,0 +1,128 @@
+version: '3.8'
+
+# Kalibr ARM64 Docker Compose Configuration
+# Usage:
+#   docker-compose run kalibr              # Interactive shell
+#   docker-compose up calibrate-full       # Full calibration
+#   docker-compose up calibrate-finetune   # Fine-tune mode
+#   docker-compose up calibrate-timeonly   # Time offset only
+
+services:
+  # ============================================
+  # Interactive Mode - Manual Control
+  # ============================================
+  kalibr:
+    image: maxcyberbee/kalibr:arm64
+    container_name: kalibr_interactive
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./data:/data
+    working_dir: /data
+    # For GUI support on Linux, uncomment:
+    # environment:
+    #   - DISPLAY=${DISPLAY}
+    # volumes:
+    #   - /tmp/.X11-unix:/tmp/.X11-unix
+
+  # ============================================
+  # Automatic Mode - Full Calibration
+  # ============================================
+  calibrate-full:
+    image: maxcyberbee/kalibr:arm64
+    container_name: kalibr_full_calib
+    volumes:
+      - ./data:/data
+    command: >
+      rosrun kalibr kalibr_calibrate_imu_camera
+      --bag /data/bags/calib.bag
+      --cams /data/configs/camchain.yaml
+      --imu /data/configs/imu.yaml
+      --target /data/configs/target.yaml
+      --max-iter 50
+      --dont-show-report
+
+  # ============================================
+  # Fine-Tune Mode - Refine Existing Calibration
+  # ============================================
+  calibrate-finetune:
+    image: maxcyberbee/kalibr:arm64
+    container_name: kalibr_finetune
+    volumes:
+      - ./data:/data
+    command: >
+      rosrun kalibr kalibr_calibrate_imu_camera
+      --bag /data/bags/calib.bag
+      --cams /data/configs/baseline.yaml
+      --imu /data/configs/imu.yaml
+      --target /data/configs/target.yaml
+      --fine-tune
+      --dont-show-report
+
+  # ============================================
+  # Time-Offset Only - Locked Extrinsics
+  # ============================================
+  calibrate-timeonly:
+    image: maxcyberbee/kalibr:arm64
+    container_name: kalibr_timeonly
+    volumes:
+      - ./data:/data
+    command: >
+      rosrun kalibr kalibr_calibrate_imu_camera
+      --bag /data/bags/calib.bag
+      --cams /data/configs/baseline.yaml
+      --imu /data/configs/imu.yaml
+      --target /data/configs/target.yaml
+      --fine-tune
+      --lock-imu-cam-extrinsics
+      --dont-show-report
+
+  # ============================================
+  # Camera-Only Calibration
+  # ============================================
+  calibrate-camera:
+    image: maxcyberbee/kalibr:arm64
+    container_name: kalibr_camera
+    volumes:
+      - ./data:/data
+    command: >
+      rosrun kalibr kalibr_calibrate_cameras
+      --bag /data/bags/calib.bag
+      --topics /camera/image_raw
+      --models pinhole-radtan
+      --target /data/configs/target.yaml
+      --dont-show-report
+
+  # ============================================
+  # With Covariance Recovery (Detailed Analysis)
+  # ============================================
+  calibrate-detailed:
+    image: maxcyberbee/kalibr:arm64
+    container_name: kalibr_detailed
+    volumes:
+      - ./data:/data
+    command: >
+      rosrun kalibr kalibr_calibrate_imu_camera
+      --bag /data/bags/calib.bag
+      --cams /data/configs/camchain.yaml
+      --imu /data/configs/imu.yaml
+      --target /data/configs/target.yaml
+      --max-iter 100
+      --recover-covariance
+      --verbose
+      --dont-show-report
+
+# ============================================
+# Volume Configuration
+# ============================================
+# Expected directory structure:
+#
+# ./data/
+# ├── bags/
+# │   └── calib.bag
+# ├── configs/
+# │   ├── camchain.yaml      # Camera intrinsics
+# │   ├── baseline.yaml      # Prior calibration (for fine-tune)
+# │   ├── imu.yaml           # IMU noise parameters
+# │   └── target.yaml        # AprilGrid/Checkerboard config
+# └── results/               # Output directory (auto-created)

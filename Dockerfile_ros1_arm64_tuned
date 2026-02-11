@@ -1,0 +1,35 @@
+# Dockerfile for Kalibr ARM64 with custom tuning for VINS-Mono
+# Based on pre-built ARM64 image, adds optimized calibration parameters
+
+FROM prehensile/kalibr:arm64
+
+# Copy the tuned calibration scripts and modules
+COPY aslam_offline_calibration/kalibr/python/kalibr_calibrate_imu_camera \
+     /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_calibrate_imu_camera
+
+COPY aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccCalibrator.py \
+     /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccCalibrator.py
+
+COPY aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccSensors.py \
+     /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccSensors.py
+
+# Update the installed versions in devel
+RUN cp /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_calibrate_imu_camera \
+       /catkin_ws/devel/lib/kalibr/kalibr_calibrate_imu_camera 2>/dev/null || true && \
+    cp /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccCalibrator.py \
+       /catkin_ws/devel/lib/python3/dist-packages/kalibr_imu_camera_calibration/IccCalibrator.py 2>/dev/null || true && \
+    cp /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccSensors.py \
+       /catkin_ws/devel/lib/python3/dist-packages/kalibr_imu_camera_calibration/IccSensors.py 2>/dev/null || true
+
+# Create python symlink (noetic uses python3)
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# Setup proper entrypoint
+RUN echo '#!/bin/bash\n\
+export KALIBR_MANUAL_FOCAL_LENGTH_INIT=1\n\
+source /opt/ros/noetic/setup.bash\n\
+source /catkin_ws/devel/setup.bash\n\
+exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/bin/bash"]

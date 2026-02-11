@@ -1,0 +1,33 @@
+# IMU Noise Parameters Example
+# ==================================
+# IMPORTANT: These are example values!
+# You should characterize YOUR IMU using Allan variance analysis
+# for accurate calibration results.
+#
+# Common IMUs and typical values:
+# - MPU6050:     accel_noise ~0.02,  gyro_noise ~0.005
+# - ICM20948:    accel_noise ~0.01,  gyro_noise ~0.001
+# - BMI088:      accel_noise ~0.008, gyro_noise ~0.0008
+# - ADIS16448:   accel_noise ~0.006, gyro_noise ~0.0004
+
+# Accelerometer noise density [m/s^2/sqrt(Hz)]
+# (white noise, from datasheet or Allan variance)
+accelerometer_noise_density: 0.01
+
+# Accelerometer random walk [m/s^3/sqrt(Hz)]
+# (bias instability, from Allan variance)
+accelerometer_random_walk: 0.0002
+
+# Gyroscope noise density [rad/s/sqrt(Hz)]
+# (white noise, from datasheet or Allan variance)
+gyroscope_noise_density: 0.001
+
+# Gyroscope random walk [rad/s^2/sqrt(Hz)]
+# (bias instability, from Allan variance)
+gyroscope_random_walk: 2.0e-05
+
+# IMU update rate [Hz]
+update_rate: 100.0
+
+# ROS topic for IMU data
+rostopic: /imu/data

@@ -516,12 +516,13 @@ class IccCameraChain():
     def getResultTimeShift(self, camNr):
         return self.camList[camNr].cameraTimeToImuTimeDv.toScalar() + self.camList[camNr].timeshiftCamToImuPrior
     
-    def addDesignVariables(self, problem, noTimeCalibration = True, noChainExtrinsics = True):
+    def addDesignVariables(self, problem, noTimeCalibration=True, noChainExtrinsics=True, lockImuCamExtrinsics=False):
         #add the design variables (T(R,t) & time)  for all induvidual cameras
         for camNr, cam in enumerate( self.camList ):
             #the first "baseline" dv is between the imu and cam0
             if camNr == 0:
-                noExtrinsics = False
+                # Lock IMU-cam0 extrinsics if requested (fine-tune mode)
+                noExtrinsics = lockImuCamExtrinsics
                 baselinedv_group_id = CALIBRATION_GROUP_ID
             else:
                 noExtrinsics = noChainExtrinsics

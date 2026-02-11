@@ -27,7 +27,8 @@ class IccCalibrator(object):
         self.ImuList = []
 
     def initDesignVariables(self, problem, poseSpline, noTimeCalibration, noChainExtrinsics=True, \
-                            estimateGravityLength=False, initialGravityEstimate=np.array([0.0,9.81,0.0])):        
+                            estimateGravityLength=False, initialGravityEstimate=np.array([0.0,9.81,0.0]),
+                            lockImuCamExtrinsics=False):        
         # Initialize the system pose spline (always attached to imu0) 
         self.poseDv = asp.BSplinePoseDesignVariable( poseSpline )
         addSplineDesignVariables(problem, self.poseDv)
@@ -45,8 +46,8 @@ class IccCalibrator(object):
         for imu in self.ImuList:
             imu.addDesignVariables( problem )
         
-        #Add all DVs for the camera chain    
-        self.CameraChain.addDesignVariables( problem, noTimeCalibration, noChainExtrinsics )
+        #Add all DVs for the camera chain
+        self.CameraChain.addDesignVariables( problem, noTimeCalibration, noChainExtrinsics, lockImuCamExtrinsics )
 
     def addPoseMotionTerms(self, problem, tv, rv):
         wt = 1.0/tv;
@@ -61,11 +62,11 @@ class IccCalibrator(object):
     def registerImu(self, sensor):
         self.ImuList.append( sensor )
             
-    def buildProblem( self, 
-                      splineOrder=6, 
-                      poseKnotsPerSecond=70, 
-                      biasKnotsPerSecond=70, 
-                      doPoseMotionError=False, 
+    def buildProblem( self,
+                      splineOrder=6,
+                      poseKnotsPerSecond=70,
+                      biasKnotsPerSecond=70,
+                      doPoseMotionError=False,
                       mrTranslationVariance=1e6,
                       mrRotationVariance=1e5,
                       doBiasMotionError=True,
@@ -78,7 +79,8 @@ class IccCalibrator(object):
                       gyroNoiseScale=1.0,
                       accelNoiseScale=1.0,
                       timeOffsetPadding=0.02,
-                      verbose=False  ):
+                      verbose=False,
+                      lockImuCamExtrinsics=False  ):
 
         print("\tSpline order: %d" % (splineOrder))
         print("\tPose knots per second: %d" % (poseKnotsPerSecond))
@@ -91,6 +93,7 @@ class IccCalibrator(object):
         print("\tAcceleration Huber width (sigma): %f" % (huberAccel))
         print("\tGyroscope Huber width (sigma): %f" % (huberGyro))
         print("\tDo time calibration: %s" % (not noTimeCalibration))
+        print("\tLock IMU-camera extrinsics: %s" % lockImuCamExtrinsics)
         print("\tMax iterations: %d" % (maxIterations))
         print("\tTime offset padding: %f" % (timeOffsetPadding))
 
@@ -123,7 +126,8 @@ class IccCalibrator(object):
         problem = inc.CalibrationOptimizationProblem()
 
         # Initialize all design variables.
-        self.initDesignVariables(problem, poseSpline, noTimeCalibration, noChainExtrinsics, initialGravityEstimate = estimatedGravity)
+        self.initDesignVariables(problem, poseSpline, noTimeCalibration, noChainExtrinsics,
+                                 initialGravityEstimate=estimatedGravity, lockImuCamExtrinsics=lockImuCamExtrinsics)
         
         ############################################
         ## add error terms
