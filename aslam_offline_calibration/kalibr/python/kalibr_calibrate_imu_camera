@@ -215,19 +215,51 @@ def main():
         effective_max_iter = parsed.max_iter
         effective_no_chain_extrinsics = (not parsed.recompute_chain_extrinsics)
 
-    print("")
-    print("Building the problem (optimized for low-rate camera + VINS-Mono)")
+    # =============================================
+    # Platform detection — drives BOTH problem size and optimizer tuning
+    # =============================================
+    import platform
+    is_arm = platform.machine() in ('aarch64', 'arm64', 'armv8l')
+
+    if is_arm:
+        print("")
+        print("Detected ARM64 platform — reducing problem size for memory/time budget")
+        if parsed.fine_tune:
+            # Fine-tune on ARM: minimal problem, we already have a good solution
+            bp_splineOrder        = 4
+            bp_poseKnotsPerSec    = 20   # 2x camera rate — enough to refine, not refit
+            bp_biasKnotsPerSec    = 20
+            bp_mrTransVar         = 1e4  # tighter regularization helps conditioning
+            bp_mrRotVar           = 1e4
+        else:
+            # Full calibration on ARM: still needs accuracy, but smaller than x86
+            bp_splineOrder        = 4    # 4 vs 6: ~33% fewer coefficients per segment
+            bp_poseKnotsPerSec    = 30   # 3x camera rate — adequate Nyquist for 10-15Hz
+            bp_biasKnotsPerSec    = 30   # bias changes slowly, 30 is plenty for 100Hz IMU
+            bp_mrTransVar         = 1e4  # tighter: improves Hessian conditioning on ARM
+            bp_mrRotVar           = 1e4
+    else:
+        print("")
+        print("Detected x86 platform — using full problem density")
+        bp_splineOrder        = 6
+        bp_poseKnotsPerSec    = 50
+        bp_biasKnotsPerSec    = 50
+        bp_mrTransVar         = 1e5
+        bp_mrRotVar           = 1e5
+
+    print("Building the problem (splineOrder=%d, poseKnots/s=%d, biasKnots/s=%d)" %
+          (bp_splineOrder, bp_poseKnotsPerSec, bp_biasKnotsPerSec))
     iCal.buildProblem(
-        splineOrder           = 6,        # stable for sparse camera observations (10-15Hz)
-        poseKnotsPerSecond    = 50,       # ~3-5x camera rate (optimal for 10-15Hz camera)
-        biasKnotsPerSecond    = 50,       # half IMU rate (good for 100Hz IMU)
-        doPoseMotionError     = True,     # enforce second-derivative regularization
-        mrTranslationVariance = 1e5,      # slightly looser for low-rate camera
-        mrRotationVariance    = 1e5,      # slightly looser for low-rate camera
-        doBiasMotionError     = True,     # bias random-walk regularizer
-        blakeZisserCam        = 2.0,      # tighter: 2px threshold for VGA resolution
-        huberAccel            = 0.5,      # looser: consumer MEMS IMUs have more noise
-        huberGyro             = 0.05,     # tight for gyro (usually more accurate)
+        splineOrder           = bp_splineOrder,
+        poseKnotsPerSecond    = bp_poseKnotsPerSec,
+        biasKnotsPerSecond    = bp_biasKnotsPerSec,
+        doPoseMotionError     = True,
+        mrTranslationVariance = bp_mrTransVar,
+        mrRotationVariance    = bp_mrRotVar,
+        doBiasMotionError     = True,
+        blakeZisserCam        = 2.0,
+        huberAccel            = 0.5,
+        huberGyro             = 0.05,
         noTimeCalibration     = parsed.no_time,
         noChainExtrinsics     = effective_no_chain_extrinsics,
         maxIterations         = effective_max_iter,
@@ -236,26 +268,42 @@ def main():
         lockImuCamExtrinsics  = getattr(parsed, 'lock_imu_cam_extrinsics', False)
     )
 
-
-
     print("")
     print("Before Optimization")
     print("===================")
     util.printErrorStatistics(iCal)
     
     print("")
-    print("Optimizing with tightened LM tolerances…")
+    # Optimizer settings — reuse is_arm detected above
+    if is_arm:
+        print("ARM64 optimizer settings (memory-safe, NEON-tolerant)")
+        safe_nthreads    = 1
+        safe_lambda_init = 10.0
+        safe_delta_x     = 1e-5
+        safe_delta_j     = 1e-3
+        safe_max_iter    = effective_max_iter if parsed.fine_tune else min(effective_max_iter, 50)
+    else:
+        print("x86 optimizer settings (high-precision)")
+        safe_nthreads    = max(1, multiprocessing.cpu_count() - 2)
+        safe_lambda_init = 5.0
+        safe_delta_x     = 1e-7
+        safe_delta_j     = 1e-5
+        safe_max_iter    = max(effective_max_iter, 200)
+
+    print("Optimizing (nThreads=%d, maxIter=%d, deltaX=%.0e, deltaJ=%.0e)" %
+          (safe_nthreads, safe_max_iter, safe_delta_x, safe_delta_j))
+
     # build custom optimizer options
     opts = aopt.Optimizer2Options()
-    opts.verbose                    = True
-    opts.doLevenbergMarquardt      = True
-    opts.levenbergMarquardtLambdaInit = 5.0
-    opts.nThreads                   = max(1, multiprocessing.cpu_count() - 2)
-    opts.convergenceDeltaX          = 1e-7   # even tighter parameter convergence
-    opts.convergenceDeltaJ          = 1e-5   # even tighter cost convergence
-    opts.maxIterations              = max(parsed.max_iter, 300)  # more iterations for better convergence
-    opts.trustRegionPolicy          = aopt.LevenbergMarquardtTrustRegionPolicy(opts.levenbergMarquardtLambdaInit)
-    opts.linearSolver               = aopt.BlockCholeskyLinearSystemSolver()
+    opts.verbose                       = True
+    opts.doLevenbergMarquardt          = True
+    opts.levenbergMarquardtLambdaInit  = safe_lambda_init
+    opts.nThreads                      = safe_nthreads
+    opts.convergenceDeltaX             = safe_delta_x
+    opts.convergenceDeltaJ             = safe_delta_j
+    opts.maxIterations                 = safe_max_iter
+    opts.trustRegionPolicy             = aopt.LevenbergMarquardtTrustRegionPolicy(opts.levenbergMarquardtLambdaInit)
+    opts.linearSolver                  = aopt.BlockCholeskyLinearSystemSolver()
 
     iCal.optimize(options=opts,
                   maxIterations=opts.maxIterations,
