@@ -13,13 +13,21 @@ COPY aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccCa
 COPY aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccSensors.py \
      /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccSensors.py
 
-# Update the installed versions in devel
-RUN cp /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_calibrate_imu_camera \
-       /catkin_ws/devel/lib/kalibr/kalibr_calibrate_imu_camera 2>/dev/null || true && \
-    cp /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccCalibrator.py \
-       /catkin_ws/devel/lib/python3/dist-packages/kalibr_imu_camera_calibration/IccCalibrator.py 2>/dev/null || true && \
-    cp /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccSensors.py \
-       /catkin_ws/devel/lib/python3/dist-packages/kalibr_imu_camera_calibration/IccSensors.py 2>/dev/null || true
+# Find and overwrite ALL installed copies so the updated code is guaranteed to run
+RUN set -e && \
+    # Find every installed copy of the main script
+    find /catkin_ws/devel -name "kalibr_calibrate_imu_camera" -exec cp -v \
+        /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_calibrate_imu_camera {} \; && \
+    # Find every installed copy of IccCalibrator.py
+    find /catkin_ws/devel -name "IccCalibrator.py" -path "*/kalibr_imu_camera_calibration/*" -exec cp -v \
+        /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccCalibrator.py {} \; && \
+    # Find every installed copy of IccSensors.py
+    find /catkin_ws/devel -name "IccSensors.py" -path "*/kalibr_imu_camera_calibration/*" -exec cp -v \
+        /catkin_ws/src/kalibr/aslam_offline_calibration/kalibr/python/kalibr_imu_camera_calibration/IccSensors.py {} \; && \
+    # Verify at least one copy was updated
+    echo "=== Verifying updated files ===" && \
+    grep -l "is_arm" $(find /catkin_ws/devel -name "kalibr_calibrate_imu_camera" | head -1) && \
+    echo "SUCCESS: Updated code is in place"
 
 # Create python symlink (noetic uses python3)
 RUN ln -sf /usr/bin/python3 /usr/bin/python

@@ -26,11 +26,11 @@ fi
 docker buildx use arm64-builder
 
 echo ""
-echo "Building ARM64 image with tuned parameters..."
-echo "  - splineOrder: 6 (stable for 10-15Hz camera)"
-echo "  - poseKnotsPerSecond: 50"
-echo "  - blakeZisserCam: 2.0 (tighter for VGA)"
-echo "  - Optimized for VINS-Mono"
+echo "Building ARM64 image with platform-aware tuning..."
+echo "  ARM64: splineOrder=4, poseKnots/s=30, biasKnots/s=30 (memory-safe)"
+echo "  x86:   splineOrder=6, poseKnots/s=50, biasKnots/s=50 (high-precision)"
+echo "  Fine-tune ARM: poseKnots/s=20, biasKnots/s=20 (minimal problem)"
+echo "  Optimized for 10-15Hz camera + 100Hz IMU + VINS-Mono"
 echo ""
 
 # Build the tuned image
